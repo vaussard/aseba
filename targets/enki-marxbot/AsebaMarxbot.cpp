@@ -89,7 +89,7 @@ extern "C" void AsebaSendBuffer(AsebaVMState *vm, const uint8* data, uint16 leng
 	}
 	catch (Dashel::DashelException e)
 	{
-		std::cerr << "Target unexpectedly disconnected." << std::endl;
+		std::cerr << "Cannot write to socket: " << stream->getFailReason() << std::endl;
 	}
 }
 
