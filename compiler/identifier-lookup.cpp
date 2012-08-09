@@ -133,9 +133,24 @@ namespace Aseba
 	}
 	
 	//! Look for a variable of a given name, and if found, return an iterator; if not, return an exception
-	VariablesMap::const_iterator Compiler::findVariable(const std::wstring& varName, const SourcePos& varPos) const
+	Compiler::VariablesMap::const_iterator Compiler::findVariable(const std::wstring& varName, const SourcePos& varPos) const
 	{
-		return findInTable<VariablesMap>(variablesMap, varName, varPos, ERROR_VARIABLE_NOT_DEFINED, ERROR_VARIABLE_NOT_DEFINED_GUESS);
+		// first seach in the current context (it may be the global context as well)
+		try
+		{
+			return findVariableFromContext(currentContext, varName, varPos);
+		}
+		catch (TranslatableError e)
+		{
+			// not found -> let's try the global context
+			return findVariableFromContext(GLOBAL_CONTEXT, varName, varPos);
+		}
+	}
+
+	//! Look for a variable of a given name, and if found, return an iterator; if not, return an exception
+	Compiler::VariablesMap::const_iterator Compiler::findVariableFromContext(const std::wstring& context, const std::wstring& varName, const SourcePos& varPos) const
+	{
+		return findInTable<VariablesMap>(GET_VARIABLES_FROM_CONTEXT(context), varName, varPos, ERROR_VARIABLE_NOT_DEFINED, ERROR_VARIABLE_NOT_DEFINED_GUESS);
 	}
 	
 	//! Look for a function of a given name, and if found, return an iterator; if not, return an exception
@@ -192,9 +207,10 @@ namespace Aseba
 		implementedEvents.clear();
 		subroutineTable.clear();
 		subroutineReverseTable.clear();
+		variablesMap.clear();
 		
 		// fill variables map
-		variablesMap = targetDescription->getVariablesMap(freeVariableIndex);
+		variablesMap[GLOBAL_CONTEXT] = targetDescription->getVariablesMap(freeVariableIndex);
 		
 		// fill functions map
 		functionsMap = targetDescription->getFunctionsMap();

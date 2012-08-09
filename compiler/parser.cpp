@@ -230,9 +230,39 @@ namespace Aseba
 		}
 	}
 
+	void Compiler::freeContextMemory()
+	{
+		framePointerIndex = 0;
+	}
+
+	void Compiler::allocateContextMemory(const SourcePos varPos, const std::wstring& varName, unsigned varSize, unsigned& varAddr)
+	{
+		VariablesMap& map = GET_VARIABLES_FROM_CONTEXT(currentContext);
+
+		if (currentContext == GLOBAL_CONTEXT)
+		{
+			varAddr = freeVariableIndex;
+			map[varName] = std::make_pair(varAddr, varSize);
+			freeVariableIndex += varSize;
+		}
+		else
+		{
+			varAddr = targetDescription->variablesSize - framePointerIndex - varSize;
+			map[varName] = std::make_pair(varAddr, varSize);
+			framePointerIndex += varSize;
+
+			// update index for temporary variables
+			endVariableIndex = framePointerIndex;
+		}
+
+		// check space
+		if (freeVariableIndex > (targetDescription->variablesSize - framePointerIndex))
+			throw TranslatableError(varPos, ERROR_NOT_ENOUGH_SPACE);
+	}
+
 	void Compiler::freeTemporaryMemory()
 	{
-		endVariableIndex = 0;
+		endVariableIndex = framePointerIndex;
 	}
 
 	unsigned Compiler::allocateTemporaryMemory(const SourcePos varPos, const unsigned size)
@@ -263,7 +293,7 @@ namespace Aseba
 		assignment->children.push_back(rValue);
 		return assignment.release();
 	}
-	
+
 	//! Parse "program" grammar element.
 	Node* Compiler::parseProgram()
 	{
@@ -273,14 +303,11 @@ namespace Aseba
 		{
 			parseConstDef();
 		}
+
 		// parse all vars declarations
-		while (tokens.front() == Token::TOKEN_STR_var)
-		{
-			// we may receive NULL pointers because non initialized variables produce no code
-			Node *child = parseVarDef();
-			if (child)
-				block->children.push_back(child);
-		}
+		SWITCH_CONTEXT(GLOBAL_CONTEXT);
+		block->children.push_back(parseVarDefStatements());
+
 		// parse the rest of the code
 		while (tokens.front() != Token::TOKEN_END_OF_STREAM)
 		{
@@ -288,6 +315,22 @@ namespace Aseba
 			Node *child = parseStatement();
 			assert(child);
 			block->children.push_back(child);
+
+			// begining of an event?
+			if (EventDeclNode* event = dynamic_cast<EventDeclNode*>(child))
+			{
+				SWITCH_CONTEXT(EVENT_CONTEXT(eventName(event->eventId)));
+				// parse var declaration local to this event
+				block->children.push_back(parseVarDefStatements());
+			}
+
+			// begining of sub?
+			if (SubDeclNode* sub = dynamic_cast<SubDeclNode*>(child))
+			{
+				// reset context
+				SWITCH_CONTEXT(SUB_CONTEXT(subroutineTable[sub->subroutineId].name));
+				// local variables inside subroutines are not (yet?) supported
+			}
 		}
 		return block.release();
 	}
@@ -360,6 +403,22 @@ namespace Aseba
 		// save constant
 		constantsMap[constName] = constValue;
 	}
+
+	Node *Compiler::parseVarDefStatements()
+	{
+		std::auto_ptr<BlockNode> block(new BlockNode(tokens.front().pos));
+
+		// parse all var declarations
+		while (tokens.front() == Token::TOKEN_STR_var)
+		{
+			// we may receive NULL pointers because non initialized variables produce no code
+			Node *child = parseVarDef();
+			if (child)
+				block->children.push_back(child);
+		}
+
+		return block.release();
+	}
 	
 	//! Parse "var def" grammar element.
 	Node* Compiler::parseVarDef()
@@ -375,15 +434,16 @@ namespace Aseba
 		std::wstring varName = tokens.front().sValue;
 		SourcePos varPos = tokens.front().pos;
 		unsigned varSize = Node::E_NOVAL;
-		unsigned varAddr = freeVariableIndex;
-		
+		unsigned varAddr = Node::E_NOVAL;	// not yet allocated
+
 		tokens.pop_front();
 		
 		// optional array
 		varSize = parseVariableDefSize();
 		
 		// check if variable exists
-		if (variablesMap.find(varName) != variablesMap.end())
+		VariablesMap& map = GET_VARIABLES_FROM_CONTEXT(currentContext);
+		if (map.find(varName) != map.end())
 			throw TranslatableError(varPos, ERROR_VAR_ALREADY_DEFINED).arg(varName);
 
 		// check if variable conflicts with a constant
@@ -398,7 +458,6 @@ namespace Aseba
 		{
 			// valid
 			varSize = me->getVectorSize();
-			me.release();
 		}
 
 		// sanity check for array
@@ -406,15 +465,16 @@ namespace Aseba
 			throw TranslatableError(varPos, ERROR_UNDEFINED_SIZE).arg(varName);
 
 		// save variable
-		variablesMap[varName] = std::make_pair(varAddr, varSize);
-		freeVariableIndex += varSize;
-
-		// check space
-		if (freeVariableIndex > targetDescription->variablesSize)
-			throw TranslatableError(varPos, ERROR_NOT_ENOUGH_SPACE);
+		allocateContextMemory(varPos, varName, varSize, varAddr);
 
 		if (temp.get())
+		{
+			// we do have an assignation
+			// update the address of the memory + assignation sub-tree
+			me->arrayAddr = varAddr;
+			me.release();
 			return temp.release();
+		}
 		else
 			return NULL;
 	}

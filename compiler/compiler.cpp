@@ -208,6 +208,27 @@ namespace Aseba
 			*dump << "Expanding the syntax tree...\n";
 		}
 
+		// variable maps
+		/*
+		if (dump)
+		{
+			*dump << "Variables:\n";
+			for (AllVariablesMap::iterator context = variablesMap.begin(); context != variablesMap.end(); context++)
+			{
+				*dump << "Context: " << context->first << "\n";
+				VariablesMap& map = context->second;
+				for (VariablesMap::iterator it = map.begin(); it != map.end(); it++)
+				{
+					std::pair<unsigned, unsigned> var = it->second;
+					*dump << it->first << ": " << var.first << " [" << var.second << "]\n";
+				}
+				*dump << "------******-------\n";
+			}
+			*dump << "\n\n";
+			*dump << "Expanding the syntax tree...\n";
+		}
+		*/
+
 		// expand the syntax tree to Aseba-like syntax
 		try
 		{
@@ -326,7 +347,7 @@ namespace Aseba
 			disassemble(bytecode, preLinkBytecode, *dump);
 			*dump << "\n\n";
 		}
-		
+
 		return true;
 	}
 	

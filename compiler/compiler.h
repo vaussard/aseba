@@ -340,7 +340,11 @@ namespace Aseba
 			std::wstring toWString() const;
 			operator Type () const { return type; }
 		};
-		
+
+		//! Lookup table for variables name => (pos, size))
+		typedef std::map<std::wstring, std::pair<unsigned, unsigned> > VariablesMap;
+		//! Lookup table for context-dependant variables: context name => VariablesMap
+		typedef std::map<std::wstring, VariablesMap> AllVariablesMap;
 		//! Description of a subroutine
 		struct SubroutineDescriptor
 		{
@@ -365,7 +369,7 @@ namespace Aseba
 		Compiler();
 		void setTargetDescription(const TargetDescription *description);
 		const TargetDescription *getTargetDescription() const { return targetDescription;}
-		const VariablesMap *getVariablesMap() const { return &variablesMap; }
+		const VariablesMap *getVariablesMap() const { return &variablesMap.at(L""); }
 		const SubroutineTable *getSubroutineTable() const { return &subroutineTable; }
 		void setCommonDefinitions(const CommonDefinitions *definitions);
 		bool compile(std::wistream& source, BytecodeVector& bytecode, unsigned& allocatedVariablesCount, Error &errorDescription, std::wostream* dump = 0);
@@ -391,11 +395,14 @@ namespace Aseba
 		template <int length>
 		void expectOneOf(const Token::Type types[length]) const;
 
+		void freeContextMemory();
+		void allocateContextMemory(const SourcePos varPos, const std::wstring& varName, unsigned varSize, unsigned& varAddr);
 		void freeTemporaryMemory();
 		unsigned allocateTemporaryMemory(const SourcePos varPos, const unsigned size);
 		AssignmentNode* allocateTemporaryVariable(const SourcePos varPos, Node* rValue);
 
 		VariablesMap::const_iterator findVariable(const std::wstring& name, const SourcePos& pos) const;
+		VariablesMap::const_iterator findVariableFromContext(const std::wstring& context, const std::wstring& name, const SourcePos& pos) const;
 		FunctionsMap::const_iterator findFunction(const std::wstring& name, const SourcePos& pos) const;
 		ConstantsMap::const_iterator findConstant(const std::wstring& name, const SourcePos& pos) const;
 		EventsMap::const_iterator findGlobalEvent(const std::wstring& name, const SourcePos& pos) const;
@@ -420,6 +427,7 @@ namespace Aseba
 		
 		Node* parseReturn();
 		void parseConstDef();
+		Node* parseVarDefStatements();
 		Node* parseVarDef();
 		AssignmentNode* parseVarDefInit(MemoryVectorNode* lValue);
 		Node* parseAssignment();
@@ -455,8 +463,13 @@ namespace Aseba
 		int expectConstantExpression(SourcePos pos, Node* tree);
 	
 	protected:
+		#define GLOBAL_CONTEXT		(L"")
+		#define EVENT_CONTEXT(name)	(L"event_" + name)
+		#define SUB_CONTEXT(name)	(L"sub_" + name)
+		std::wstring currentContext;
+
 		std::deque<Token> tokens; //!< parsed tokens
-		VariablesMap variablesMap; //!< variables lookup
+		AllVariablesMap variablesMap; //!< context-aware variables lookup
 		ImplementedEvents implementedEvents; //!< list of implemented events
 		FunctionsMap functionsMap; //!< functions lookup
 		ConstantsMap constantsMap; //!< constants map
@@ -465,9 +478,13 @@ namespace Aseba
 		SubroutineTable subroutineTable; //!< subroutine lookup
 		SubroutineReverseTable subroutineReverseTable; //!< subroutine reverse lookup
 		unsigned freeVariableIndex; //!< index pointing to the first free variable
+		unsigned framePointerIndex; //!< number of context-dependant variables allocated at the end of the memory
 		unsigned endVariableIndex; //!< (endMemory - endVariableIndex) is pointing to the first free variable at the end
 		const TargetDescription *targetDescription; //!< description of the target VM
 		const CommonDefinitions *commonDefinitions; //!< common definitions, such as events or some constants
+
+		#define SWITCH_CONTEXT(context)	do{ variablesMap[context]; currentContext = context; freeContextMemory(); }while(0)
+		#define GET_VARIABLES_FROM_CONTEXT(context) (variablesMap.at(context))
 
 		ErrorMessages translator;
 	}; // Compiler
